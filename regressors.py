@@ -1,12 +1,99 @@
 import numpy as np
 
 
-class PolynomialRegressor(object):
+class Regressor(object):
+    
+    def __init__(self, *args, **kwargs):
+        """ Initialize a function approximator. """
+
+        self.params = 0
+    
+    def __repr__(self):
+        
+        return "Regressor()"
+    
+    def design(self, states):
+        """ Convert an array of states into an input array of the right shape. """
+        
+        return states
+    
+    def predict(self, states):
+        """ Predict an array of values based on an array of states. """
+        
+        raise NotImplementedError
+        
+    def error(self, states, values):
+        
+        return np.mean((self.predict(states) - values) ** 2)
+    
+    def MLE(self, states, values):
+        """ Compute the maximum-likelihood parameter settings given the data. """
+    
+        raise NotImplementedError
+        
+    def fit(self, states, values, caution=0.01, verbose=False):
+        """ Re-estimate the parameters of the Regressor to fit empirical data. """
+        
+        if verbose:
+            error = self.error(states, values)
+            print("Fitting baseline (prior error: %.3f) . . ." % error)
+        
+        solution = self.MLE(states, values)
+        self.params = caution*self.params + (1 - caution)*solution
+
+        if verbose:
+            error = self.error(states, values)
+            print("Done (posterior error: %.3f).\n" % error)
+
+
+class ZeroRegressor(Regressor):
+    
+    def __repr__(self):
+        
+        return "ZeroRegressor()"
+    
+    def design(self, states):
+
+        return states
+    
+    def predict(self, states):
+
+        return np.zeros(len(states))
+        
+    def error(self, states, values):
+
+        return np.mean(values ** 2)
+    
+    def MLE(self, states, values, caution=0.01, verbose=False):
+        
+        return 0
+
+
+class ConstantRegressor(Regressor):
+    
+    def __repr__(self):
+        
+        return "<ConstantRegressor>"
+    
+    def design(self, states):
+
+        return states
+    
+    def predict(self, states):
+
+        return self.params * np.ones(len(states))
+        
+    def MLE(self, states, values, caution=0.01, verbose=False):
+        
+        return np.mean(values)
+
+
+class PolynomialRegressor(Regressor):
     
     def __init__(self, sdim, degree=3):
         
         self.degree = degree
-        self.weights = np.zeros((self.degree + 1) * sdim)
+        self.params = np.zeros((self.degree + 1) * sdim)
     
     def __repr__(self):
         
@@ -22,28 +109,14 @@ class PolynomialRegressor(object):
     
     def predict(self, states):
         
-        return self.design(states).dot(self.weights)
-        
-    def error(self, states, values):
-        
-        return np.mean((self.predict(states) - values) ** 2)
+        return self.design(states).dot(self.params)
     
-    def fit(self, states, values, caution=0.01, verbose=False):
-        
-        if verbose:
-            error = self.error(states, values)
-            print("Fitting baseline (prior error: %.3f) . . ." % error)
+    def MLE(self, states, values):
         
         inputs = self.design(states)
         solution, residuals, rank, sngrts = np.linalg.lstsq(inputs, values)
-
-        assert solution.shape == self.weights.shape
-
-        self.weights = caution*self.weights + (1 - caution)*solution
-
-        if verbose:
-            error = self.error(states, values)
-            print("Done (posterior error: %.3f).\n" % error)
+        
+        return solution
 
 
 if __name__ == '__main__':
@@ -56,33 +129,33 @@ if __name__ == '__main__':
     B = np.random.normal()
     
     states = np.random.normal(size=(samples, sdim))
-    values = states.dot(A.T) + B
-    
-    print(" Fitting to linear data: ".center(46, "="))
-    print("")
-    
-    for d in range(maxdegree):
-        
-        print("Polynomial function approximator of degree %s:" % d)
-        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
 
-        approximator = PolynomialRegressor(sdim, degree=d)
+    linear = states.dot(A.T) + B
+    nonlinear = np.sin(states.dot(A.T)) + np.exp(states).dot(A.T)
+    
+    for values, datatype in zip([linear, nonlinear], ['linear', 'nonlinear']):
+    
+        print((" Fitting to %s data: " % datatype).center(46, "="))
+        print("")
+    
+        print("Zero function approximator:")
+        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
+
+        approximator = ZeroRegressor(sdim)
         approximator.fit(states, values, verbose=True)
-    
-    print()
 
-    states = np.random.normal(size=(samples, sdim))
-    values = np.sin(states.dot(A.T)) + np.exp(states).dot(A.T)
-    
-    print(" Fitting to nonlinear data: ".center(46, "="))
-    print("")
-    
-    for d in range(maxdegree):
-        
-        print("Polynomial function approximator of degree %s:" % d)
-        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
+        print("Constant function approximator:")
+        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
 
-        approximator = PolynomialRegressor(sdim, degree=d)
+        approximator = ConstantRegressor(sdim)
         approximator.fit(states, values, verbose=True)
+
+        for d in range(maxdegree):
+        
+            print("Polynomial function approximator of degree %s:" % d)
+            print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
+
+            approximator = PolynomialRegressor(sdim, degree=d)
+            approximator.fit(states, values, verbose=True)
     
-    print()
+        print()
