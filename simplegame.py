@@ -46,58 +46,6 @@ usize = game.action_space.n
 policy = StickyDiscretePolicy(sdim=sdim, usize=usize, degree=0,
                               shuffleprob=0.0, repeatprob=0.0)
 
-# # the winning policy:
-# policy.theta = np.zeros((usize, sdim + 1))
-# policy.theta[0, 0] = +1.0
-# policy.theta[1, 0] = -1.0
-
 agent = ReinforceAgent(policy=policy)
+agent.train(game, I=5, N=10, T=100, gamma=0.95)
 
-
-steps = 100
-iterations = 5
-
-print("The episode length is %s, and we collect %s episodes." % (steps, iterations))
-print()
-
-for iteration in range(iterations):
-    
-    print((" ITERATION %s " % iteration).center(60, '='))
-    print()
-
-    estimates = []
-    rewardsums = []
-
-    print("Current theta setting:")
-    print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
-    print(np.around(policy.theta, 4))
-    print()
-
-    for i in range(100):
-
-        states, actions, rewards, dlogps = agent.rollout(game, episodesteps=steps)
-    
-        rewardsum = np.sum(rewards)
-        estimate = np.sum(rewardsum * np.array(dlogps), axis=0)
-    
-        estimates.append(estimate)
-        rewardsums.append(rewardsum)
-
-    mean, std = np.mean(rewardsums), np.std(rewardsums)
-    rewardstats = mean, std, mean / steps, (std**2 / steps)**0.5
-
-    gradient = np.mean(estimates, axis=0)
-    variance = np.mean([np.sum((v - gradient)**2) for v in estimates])
-
-    print("Batch performance:")
-    print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
-    print("%.3f ± %.3f (or %.3f ± %.3f per timestep)." % rewardstats)
-    print()
-    print("Mean gradient estimate:" % variance)
-    print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
-    print(np.around(gradient, 4))
-    print()
-    print("(Variance = %.4g, or %.4g per timestep)." % (variance, variance/steps))
-    print()
-    
-    policy.theta += 0.1*gradient

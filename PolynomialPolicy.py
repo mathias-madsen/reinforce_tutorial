@@ -137,11 +137,19 @@ class StickyDiscretePolicy(object):
         
         return np.random.choice(range(self.usize), p=self.distribution(s, u))
 
-    def REINFORCE(self, states, actions, returns):
-        """ Compute the REINFORCE gradient estimate. """
+    def update(self, direction, length, verbose=False):
+        """ Take a step in the direction, peforming certain sanity checks. """
         
-        return np.sum([r * self.dlogprob(u, self.theta, s, u_prev) for r, u, s, u_prev
-                       in zip(returns, actions[1:], states, actions[:-1])], axis=0)
+        assert not np.any(np.isnan(direction))
+        assert direction.shape == self.theta.shape
+        
+        if verbose:
+            L2 = np.sum(direction ** 2) ** 0.5
+            print("Length of direction vector: %.5g." % L2)
+            print("Length of the step taken: %.5g." % (length * L2))
+            print()
+
+        self.theta += length * direction
 
 
 if __name__ == '__main__':
