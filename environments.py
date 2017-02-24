@@ -32,4 +32,8 @@ class SimpleEnvironment(object):
         reward = 1.0 if action == 0 else -1.0 # switch statement
 
         return self.state, reward, False, {} # obs, reward, done, oddities
+    
+    def render(self):
+        
+        raise NotImplementedError
 

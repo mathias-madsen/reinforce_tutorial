@@ -40,9 +40,13 @@ def print_stats(rewardsums):
     std = np.std(rewardsums)
     
     meantext = "Mean sum-of-rewards per rollout: %.3f ± %.3f." % (mean, std)
-    print(meantext, "‾" * len(meantext), "\n")
+
+    print(meantext)
+    print("‾" * len(meantext))
+    print()
     
-    print("Percentiles of the sums-of-rewards:\n")
+    print("Percentiles of the sums-of-rewards:")
+    print()
 
     percents = np.linspace(0, 100, 5 + 1)
     percentiles = [np.percentile(rewardsums, p) for p in percents]

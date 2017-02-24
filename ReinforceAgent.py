@@ -14,50 +14,49 @@ class ReinforceAgent(object):
         self.baseline = PolynomialRegressor(self.policy.sdim)
 
         self.rsumlists = [] # progress tracker; saves N rewardsums per epoch
-        self.purge()
-    
-    def purge(self):
-        """ Clean out the short-term memory of recent rollouts. """
-        
-        self.stateslists = []
-        self.actionslists = []
-        self.rewardslists = []
-        self.dlogproblists = []
-        
-        self.allstates = []
-        self.alladvantages = []
-    
+
     def rollout(self, environment, T=100, render=False, fps=24):
         """ Peform a single rollout in the given environment. """
-        
-        environment.reset()
-        prev_action = environment.action_space.sample()
 
-        states = []
-        actions = [prev_action] # the action at time t - 1
+        states = [environment.reset()]
+        actions = []
         rewards = []
         scores = []
 
         for t in range(T):
 
-            state, reward, done, info = environment.step(prev_action)
-            action = self.policy.sample(state, prev_action)
-            score = self.policy.dlogprob(action, self.policy.theta, state, prev_action)
-            
             if render:
                 environment.render()
                 time.sleep(1.0/fps)
-    
-            states.append(state)
+
+            # The agent responds to the environment:
+            action = self.policy.sample(states, actions, self.policy.weights)
+            score = self.policy.score(action, states, actions, self.policy.weights)
+
+            assert not np.any(np.isnan(action))
+            assert not np.any(np.isnan(score))
+
             actions.append(action)
-            rewards.append(reward)
             scores.append(score)
+
+            # The environment responds to the agent:
+            state, reward, done, info = environment.step(action)
+        
+            assert not np.any(np.isnan(state))
+            assert not np.any(np.isnan(reward))
+
+            states.append(state)
+            rewards.append(reward)
             
-            prev_action = action
-            
+            assert not np.any(np.isnan(score))
+
             if done:
                 break
         
+        # Because of the state yielded from the initial environment.reset(),
+        # we end up with one state which the agent never gets to respond to:
+        states = states[:T]
+
         return states, actions, rewards, scores
     
     def reinforce(self, states, rewards, scores, gamma=None):
@@ -66,8 +65,21 @@ class ReinforceAgent(object):
         returns = self.smear(rewards, gamma=gamma)
         advantages = returns - self.baseline.predict(states)
         terms = (np.array(scores).T * advantages).T
+        gradient = np.sum(terms, axis=0)
         
-        return np.sum(terms, axis=0), advantages
+        assert not np.any(np.isnan(returns))
+        assert not np.any(np.isnan(advantages))
+        assert not np.any(np.isnan(terms))
+        
+        if np.any(np.isnan(gradient)):
+            gradient = np.zeros_like(gradient)
+            print("Dropped a gradient with nan's!")
+        
+        elif np.any(np.isinf(gradient)):
+            gradient = np.zeros_like(gradient)
+            print("Dropped a gradient with inf's!")
+        
+        return gradient, advantages
     
     def collect(self, environment, N=20, T=100, gamma=None, verbose=True):
         """ Collect learning-relevant stats over N rollouts of length <= T. """
@@ -93,26 +105,34 @@ class ReinforceAgent(object):
         
         return meangradient, rewardsums, allstates, alladvantages
 
-    def train(self, environment, I=100, N=100, T=1000, gamma=0.90, learning_rate=0.001,
-                    verbose=True, dirpath=None, save_args=True, save_theta=True,
-                    plot_progress=True, imshow_theta=True):
+    def train(self, environment, I=100, N=100, T=1000, gamma=0.90, learning_rate=0.1,
+                    verbose=True, dirpath=None, save_args=True, save_weights=True,
+                    plot_progress=True, imshow_weights=True):
         """ Collect empirical information and update parameters I times. """
         
-        if save_args or save_theta or plot_progress or imshow_theta:
+        if save_args or save_weights or plot_progress or imshow_weights:
             dirpath = logger.makedir(dirpath)
         
         if save_args:
             logger.save_args(dirpath, policy=self.policy, baseline=self.baseline,
                              environment=environment, I=I, N=N, T=T, gamma=gamma,
                              learning_rate=learning_rate)
-        
+
         if plot_progress:
             rsumlists = []
         
+        if imshow_weights:
+            filename = os.path.join(dirpath, "weights_0000.png")
+            self.policy.imshow_weights(show=False, filename=filename)
+
+        if save_weights:
+            filename = os.path.join(dirpath, "weights_0000.npz")
+            self.policy.saveas(filename)
+
         for i in range(I):
             
             if verbose:
-                print("Training epoch i=%s:\n" % i)
+                print("Training epoch %s:\n" % i)
 
             # obtain learning-relevant statistics through experimentation:
             gradient, rsums, states, advans = self.collect(environment, N, T, gamma)
@@ -126,16 +146,15 @@ class ReinforceAgent(object):
             # Re-estimate the parameters of the advantage-predictor:
             self.baseline.fit(states, advans, verbose=verbose)
 
-            # Having thus learned from the memory contents, discard it:
-            self.purge()
-
-            if save_theta:
-                filename = os.path.join(dirpath, "theta.npz")
+            numi = str(i + 1).rjust(4, '0')
+            
+            if save_weights:
+                filename = os.path.join(dirpath, "weights_%s.npz" % numi)
                 self.policy.saveas(filename)
 
-            if imshow_theta:
-                filename = os.path.join(dirpath, "theta_%s.png" % str(i).rjust(4, '0'))
-                self.policy.imshow_theta(show=False, filename=filename)
+            if imshow_weights:
+                filename = os.path.join(dirpath, "weights_%s.png" % numi)
+                self.policy.imshow_weights(show=False, filename=filename)
 
             if plot_progress:
                 rsumlists.append(rsums)
