@@ -46,54 +46,56 @@ class Regressor(object):
             print("Done (posterior error: %.3f).\n" % error)
 
 
-class ZeroRegressor(Regressor):
-    
-    def __repr__(self):
-        
-        return "ZeroRegressor()"
-    
-    def design(self, states):
-
-        return states
-    
-    def predict(self, states):
-
-        return np.zeros(len(states))
-        
-    def error(self, states, values):
-
-        return np.mean(values ** 2)
-    
-    def MLE(self, states, values, caution=0.01, verbose=False):
-        
-        return 0
-
-
-class ConstantRegressor(Regressor):
-    
-    def __repr__(self):
-        
-        return "<ConstantRegressor>"
-    
-    def design(self, states):
-
-        return states
-    
-    def predict(self, states):
-
-        return self.params * np.ones(len(states))
-        
-    def MLE(self, states, values, caution=0.01, verbose=False):
-        
-        return np.mean(values)
-
-
 class PolynomialRegressor(Regressor):
     
     def __init__(self, sdim, degree=3):
         
+        self.sdim = sdim
         self.degree = degree
-        self.params = np.zeros((self.degree + 1) * sdim)
+        self.params = np.zeros(1 + self.degree*self.sdim)
+        
+    def __repr__(self):
+        
+        return "<%s: degree=%s>" % (self.__class__.__name__, self.degree)
+    
+    def design(self, states):
+        """ For the design matrix (matrix of input vectors) from the states. """
+        
+        states = np.array(states)
+        samples, sdim = states.shape
+
+        assert self.sdim == sdim
+        
+        ones = np.ones((samples, 1))
+        
+        if self.degree < 1:
+            return ones
+
+        statepowers = [states ** (n + 1) for n in range(self.degree)]
+        powermatrix = np.concatenate(statepowers, axis=1)
+        
+        return np.concatenate([ones, powermatrix], axis=1)
+    
+    def predict(self, states):
+        
+        return self.design(states).dot(self.params)
+    
+    def MLE(self, states, values):
+        
+        inputs = self.design(states)
+        solution, residuals, rank, sngrts = np.linalg.lstsq(inputs, values)
+        
+        return solution
+
+
+class PolynomialTemporalRegressor(Regressor):
+    
+    def __init__(self, sdim, degree=3, timedegree=3):
+        
+        self.sdim = sdim
+        self.degree = degree
+        self.timedegree = timedegree
+        self.params = np.zeros(1 + self.degree*self.sdim + self.timedegree)
     
     def __repr__(self):
         
@@ -101,12 +103,31 @@ class PolynomialRegressor(Regressor):
     
     def design(self, states):
         """ For the design matrix (matrix of input vectors) from the states. """
-
-        statearray = np.array(states)
-        powers = [statearray ** n for n in range(self.degree + 1)]
         
-        return np.concatenate(powers, axis=1)
-    
+        states = np.array(states)
+        samples, sdim = states.shape
+        
+        assert self.sdim == sdim
+        
+        ones = [np.ones((samples, 1))]
+        
+        timecolumn = np.arange(samples).reshape((samples, 1))
+        timepowers = [timecolumn ** (n + 1) for n in range(self.timedegree)]
+        
+        statepowers = [states ** (n + 1) for n in range(self.degree)]
+
+        if self.degree == 0 and self.timedegree == 0:
+            return np.concatenate(ones, axis=1)
+
+        elif self.degree == 0 and self.timedegree > 0:
+            return np.concatenate(ones + timepowers, axis=1)
+
+        elif self.degree > 0 and self.timedegree == 0:
+            return np.concatenate(ones + statepowers, axis=1)
+
+        else:
+            return np.concatenate(ones + statepowers + timepowers, axis=1)
+
     def predict(self, states):
         
         return self.design(states).dot(self.params)
@@ -123,7 +144,8 @@ if __name__ == '__main__':
     
     sdim = 3
     samples = 100
-    maxdegree = 7
+    maxdegree = 3
+    maxtimedegree = 3
     
     A = np.random.normal(size=sdim)
     B = np.random.normal()
@@ -137,25 +159,24 @@ if __name__ == '__main__':
     
         print((" Fitting to %s data: " % datatype).center(46, "="))
         print("")
+        print("")
     
-        print("Zero function approximator:")
-        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
-
-        approximator = ZeroRegressor(sdim)
-        approximator.fit(states, values, verbose=True)
-
-        print("Constant function approximator:")
-        print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
-
-        approximator = ConstantRegressor(sdim)
-        approximator.fit(states, values, verbose=True)
-
         for d in range(maxdegree):
-        
-            print("Polynomial function approximator of degree %s:" % d)
+
+            print("Polynomial function approximator of degree %s):" % d)
             print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
 
             approximator = PolynomialRegressor(sdim, degree=d)
             approximator.fit(states, values, verbose=True)
-    
+
+            for t in range(maxtimedegree):
+        
+                print("Temporal-polynomial function approximator of degree (%s, %s):" % (d, t))
+                print("‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾")
+
+                approximator = PolynomialTemporalRegressor(sdim, degree=d, timedegree=t)
+                approximator.fit(states, values, verbose=True)
+
+            print()
+
         print()
