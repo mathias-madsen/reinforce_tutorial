@@ -5,59 +5,12 @@ import theano
 from theano import tensor as tns
 
 
-class StickyDiscretePolicy(object):
+
+class Policy(object):
     
-    def __init__(self, sdim=None, usize=None, repeatprob=0.9, shuffleprob=0.1,
-                       degree=3, verbose=True, filename=None):
+    def __init__(self, *args, **kwargs):
         
-        if filename is None:
-            
-            self.repeatprob = repeatprob
-            self.shuffleprob = shuffleprob
-            self.degree = degree
-
-            self.sdim = sdim
-            self.usize = usize
-
-            thetashape = self.usize, (self.degree + 1)*self.sdim + 1
-            self.theta = np.random.normal(size=thetashape)
-
-        else:
-            
-            self.load(filename)
-        
-        self.compile(verbose=verbose)
-    
-    def __repr__(self):
-        
-        classname = self.__class__.__name__
-        description = classname, self.sdim, self.usize, self.repeatprob, self.degree
-        
-        return "<%s: sdim=%s, usize=%s, repeatprob=%s, degree=%s>" % description
-    
-    def saveas(self, filename=None):
-        """ Save the parameters of the policy for later loading. """
-        
-        parameters = {
-            'sdim': self.sdim,
-            'usize': self.usize,
-            'repeatprob': self.repeatprob,
-            'degree': self.degree,
-            'theta': self.theta
-        }
-
-        np.savez(filename, **parameters)
-    
-    def load(self, filename=None):
-        """ Initialize a policy from saved parameters. """
-
-        source = np.load(filename)
-        
-        self.sdim = source['sdim']
-        self.usize = source['usize']
-        self.repeatprob = source['repeatprob']
-        self.degree = source['degree']
-        self.theta = source['theta']
+        pass
 
     def imshow_theta(self, show=True, filename=None):
         """ imshow the parameter matrix. """
@@ -73,6 +26,87 @@ class StickyDiscretePolicy(object):
         
         plt.close('all')
     
+    def update(self, direction, length, verbose=False):
+        """ Take a step in the direction, peforming certain sanity checks. """
+        
+        assert not np.any(np.isnan(direction))
+        assert direction.shape == self.theta.shape
+        
+        if verbose:
+            L2 = np.sum(direction ** 2) ** 0.5
+            print("Length of direction vector: %.5g." % L2)
+            print("Length of the step taken: %.5g." % (length * L2))
+            print()
+
+        self.theta += length * direction
+
+
+
+class DiscretePolicy(Policy):
+
+    def distribution(self, s, u):
+        """ Probability vector for u[t] given s[t], u[t - 1], and theta. """
+        
+        probabilities = self.probs(self.theta, s, u) # theta for free
+        
+        assert np.all(probabilities >= 0)
+        assert np.all(probabilities - 1 <= 1e-7) # almost smaller than 1
+        assert np.abs(1.0 - np.sum(probabilities)) < 1e-7 # almost sum to 1
+        assert not np.any(np.isnan(probabilities)) # are not nan
+        assert np.allclose([np.sum(probabilities)], [1.0]) # almost sum to 1
+
+        return probabilities / probabilities.sum() # note the test above
+    
+    def sample(self, s, u):
+        """ Sample u[t] given s[t], u[t - 1], and theta. """
+        
+        return np.random.choice(range(self.usize), p=self.distribution(s, u))
+
+
+
+class StickyDiscretePolicy(DiscretePolicy):
+    
+    def __init__(self, sdim=None, usize=None, repeatprob=0.9, shuffleprob=0.1,
+                       degree=3, theta=None, verbose=True, filename=None):
+        
+        if filename is None:
+            
+            self.repeatprob = repeatprob
+            self.shuffleprob = shuffleprob
+            self.degree = degree
+
+            self.sdim = sdim
+            self.usize = usize
+            
+            if theta is None:
+                thetashape = self.usize, (self.degree + 1)*self.sdim + 1
+                theta = np.random.normal(size=thetashape)
+                
+            self.theta = theta
+
+        else:
+            
+            self.load(filename)
+        
+        self.compile(verbose=verbose)
+    
+    def __repr__(self):
+        
+        classname = self.__class__.__name__
+        description = classname, self.sdim, self.usize, self.repeatprob, self.shuffleprob, self.degree
+        
+        return "<%s: sdim=%s, usize=%s, repeatprob=%s, shuffleprob=%s, degree=%s>" % description
+    
+    def saveas(self, filename=None):
+        """ Save the parameters of the policy for later loading. """
+        
+        np.savez(filename, **self.__dict__)
+    
+    def load(self, filename=None):
+        """ Initialize a policy from saved parameters. """
+        
+        self.__dict__.update(np.load(filename))
+
     def compile(self, verbose=True):
 
         THETA = tns.dmatrix("theta")
@@ -118,38 +152,6 @@ class StickyDiscretePolicy(object):
         
         if verbose:
             print("Done.\n")
-    
-    def distribution(self, s, u):
-        """ Probability vector for u[t] given s[t], u[t - 1], and theta. """
-        
-        probabilities = self.probs(self.theta, s, u) # theta for free
-        
-        assert np.all(probabilities >= 0)
-        assert np.all(probabilities - 1 <= 1e-7) # almost smaller than 1
-        assert np.abs(1.0 - np.sum(probabilities)) < 1e-7 # almost sum to 1
-        assert not np.any(np.isnan(probabilities)) # are not nan
-        assert np.allclose([np.sum(probabilities)], [1.0]) # almost sum to 1
-
-        return probabilities / probabilities.sum() # note the test above
-    
-    def sample(self, s, u):
-        """ Sample u[t] given s[t], u[t - 1], and theta. """
-        
-        return np.random.choice(range(self.usize), p=self.distribution(s, u))
-
-    def update(self, direction, length, verbose=False):
-        """ Take a step in the direction, peforming certain sanity checks. """
-        
-        assert not np.any(np.isnan(direction))
-        assert direction.shape == self.theta.shape
-        
-        if verbose:
-            L2 = np.sum(direction ** 2) ** 0.5
-            print("Length of direction vector: %.5g." % L2)
-            print("Length of the step taken: %.5g." % (length * L2))
-            print()
-
-        self.theta += length * direction
 
 
 if __name__ == '__main__':
