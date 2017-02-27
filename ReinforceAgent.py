@@ -2,8 +2,9 @@ import numpy as np
 import os
 import time
 
-from regressors import PolynomialRegressor
 import logger
+from BlockyVector import BlockyVector
+from regressors import PolynomialRegressor, PolynomialTemporalRegressor
 
 
 class ReinforceAgent(object):
@@ -11,7 +12,7 @@ class ReinforceAgent(object):
     def __init__(self, policy):
         
         self.policy = policy
-        self.baseline = PolynomialRegressor(self.policy.sdim)
+        self.baseline = PolynomialTemporalRegressor(self.policy.sdim)
 
         self.rsumlists = [] # progress tracker; saves N rewardsums per epoch
 
@@ -33,25 +34,19 @@ class ReinforceAgent(object):
             action = self.policy.sample(states, actions, self.policy.weights)
             score = self.policy.score(action, states, actions, self.policy.weights)
 
-            assert not np.any(np.isnan(action))
-            assert not np.any(np.isnan(score))
-
             actions.append(action)
             scores.append(score)
 
             # The environment responds to the agent:
             state, reward, done, info = environment.step(action)
-        
-            assert not np.any(np.isnan(state))
-            assert not np.any(np.isnan(reward))
 
             states.append(state)
             rewards.append(reward)
-            
-            assert not np.any(np.isnan(score))
 
             if done:
                 break
+        
+        environment.close()
         
         # Because of the state yielded from the initial environment.reset(),
         # we end up with one state which the agent never gets to respond to:
@@ -64,20 +59,17 @@ class ReinforceAgent(object):
         
         returns = self.smear(rewards, gamma=gamma)
         advantages = returns - self.baseline.predict(states)
-        terms = (np.array(scores).T * advantages).T
-        gradient = np.sum(terms, axis=0)
-        
+
         assert not np.any(np.isnan(returns))
         assert not np.any(np.isnan(advantages))
-        assert not np.any(np.isnan(terms))
         
-        if np.any(np.isnan(gradient)):
-            gradient = np.zeros_like(gradient)
-            print("Dropped a gradient with nan's!")
-        
-        elif np.any(np.isinf(gradient)):
-            gradient = np.zeros_like(gradient)
-            print("Dropped a gradient with inf's!")
+        # NOTE! The dot operation here is ambiguous between the np.ndarray
+        # operation and the corresponding BlockyVector operations. They
+        # should do the same (perform a scaling), but .dot is easier to
+        # overwrite due to the weird rules about __mul__ and __rmul__.
+
+        terms = [adv * score for adv, score in zip(advantages, scores)]
+        gradient = BlockyVector(np.sum(terms, axis=0))
         
         return gradient, advantages
     
@@ -100,8 +92,9 @@ class ReinforceAgent(object):
             
             allstates.extend(states)
             alladvantages.extend(advantages)
-
+        
         meangradient = np.mean(gradients, axis=0)
+        meangradient = BlockyVector(meangradient)
         
         return meangradient, rewardsums, allstates, alladvantages
 
@@ -126,13 +119,15 @@ class ReinforceAgent(object):
             self.policy.imshow_weights(show=False, filename=filename)
 
         if save_weights:
-            filename = os.path.join(dirpath, "weights_0000.npz")
-            self.policy.saveas(filename)
+            new_named_file = os.path.join(dirpath, "weights_0000.npz")
+            old_most_recent = os.path.join(dirpath, "weights.npz")
+            self.policy.saveas(new_named_file)
+            self.policy.saveas(old_most_recent)
 
         for i in range(I):
             
             if verbose:
-                print("Training epoch %s:\n" % i)
+                print("\n", ("TRAINING EPOCH %s:" % i).center(60), "\n")
 
             # obtain learning-relevant statistics through experimentation:
             gradient, rsums, states, advans = self.collect(environment, N, T, gamma)
@@ -149,8 +144,10 @@ class ReinforceAgent(object):
             numi = str(i + 1).rjust(4, '0')
             
             if save_weights:
-                filename = os.path.join(dirpath, "weights_%s.npz" % numi)
-                self.policy.saveas(filename)
+                new_named_file = os.path.join(dirpath, "weights_%s.npz" % numi)
+                old_most_recent = os.path.join(dirpath, "weights.npz")
+                self.policy.saveas(new_named_file)
+                self.policy.saveas(old_most_recent)
 
             if imshow_weights:
                 filename = os.path.join(dirpath, "weights_%s.png" % numi)

@@ -5,6 +5,7 @@ import theano
 from theano import tensor as tns
 
 import distributions
+from BlockyVector import BlockyVector
 
 
 class Policy(object):
@@ -28,7 +29,11 @@ class Policy(object):
     def load(self, filename=None):
         """ Initialize a policy from saved parameters. """
         
-        self.__dict__.update(np.load(filename))
+        source = np.load(filename)
+        methods = 'dist design dlogp params'.split(' ')
+        
+        self.__dict__.update({name: entry for name, entry in source.items()
+                              if name not in methods})
 
     def imshow_weights(self, show=True, filename=None):
         """ imshow the parameter matrix. """
@@ -46,12 +51,11 @@ class Policy(object):
     
     def update(self, direction, length, verbose=False):
         """ Take a step in the direction, peforming certain sanity checks. """
-        
-        assert not np.any(np.isnan(direction))
+
         assert direction.shape == self.weights.shape
         
         if verbose:
-            L2 = np.sum(direction ** 2) ** 0.5
+            L2 = (direction ** 2).sum() ** 0.5
             print("Length of direction vector: %.5g." % L2)
             print("Length of the step taken: %.5g." % (length * L2))
             print()
@@ -61,56 +65,50 @@ class Policy(object):
 
 class ContinuousPolicy(Policy):
     
-    def __init__(self, sdim=None, udim=None, low=None, high=None, degree=3,
-                       weights=None, filename=None):
-
-        if udim is None: # we allow the udim to be inferred from low and high
-
-            udim = len(low) if low is not None else None
-            udim = len(high) if high is not None else None
+    def __init__(self, environment=None, weights=None, Dist=distributions.Gaussian,
+                       filename=None, *args, **kwargs):
         
-        if udim is not None: # can still fail if low == high == udim == None
-
-            low = np.zeros(udim) if low is None else low
-            high = np.ones(udim) if high is None else high
-        
-        if sdim is not None and degree is not None and weights is None:
-            
-            inputdim = 1 + (sdim * degree) # [1.0] + concatenated powers
-            outputdim = 2 # a Beta distribution has two parameters
-
-            weights = np.zeros((outputdim, udim, inputdim))
-            weights[:, :, 0] = 1
-        
-        self.sdim = sdim
-        self.udim = udim
-
-        self.low = low
-        self.high = high
-
-        self.degree = degree
-        self.weights = weights
-
         if filename is not None:
             self.load(filename)
+            self.compile()
+            return
         
-        assert np.all(self.low <= self.high)
+        self.sdim, = environment.observation_space.shape
+        self.udim, = environment.action_space.shape
+        
+        self.low = environment.action_space.low
+        self.high = environment.action_space.high
+
+        self.weights = weights
+        self.dist = Dist() # make new instance: Dist.__init__() == dist
+        
+        if weights is not None:
+            self.weights = BlockyVector(weights)
+        else:
+            self.initialize_weights()
 
         self.compile()
     
-    def DESIGN(self, SHIST, UHIST):
-        
-        STATE = SHIST[-1, :]
+    def wrap(self, action):
+        """ Convert an unnormalized action into a box element. """
 
-        return tns.concatenate([[1]] + [STATE ** (n + 1) for n in range(self.degree)])
-    
-    def PARAMS(self, SHIST, UHIST, WEIGHTS):
+        return self.low + (self.high - self.low)*self.dist.squash(action)
         
-        INPUTS = self.DESIGN(SHIST, UHIST)
-        PRODUCT = tns.dot(WEIGHTS, INPUTS)
-        
-        return tns.abs_(PRODUCT)
+    def WRAP(self, action):
+        """ Convert an unnormalized action into a box element. """
+
+        return self.low + (self.high - self.low)*self.dist.SQUASH(action)
+
+    def unwrap(self, box_elm):
+        """ Convert a box element into a unit cube element. """
+
+        return self.dist.unsquash((box_elm - self.low) / (self.high - self.low))
     
+    def UNWRAP(self, box_elm):
+        """ Convert a box element into a unit cube element. """
+
+        return self.dist.UNSQUASH((box_elm - self.low) / (self.high - self.low))
+
     def LOGP(self, ACTION, PARAMS):
         
         return self.dist.LOGP(ACTION, PARAMS)
@@ -119,32 +117,21 @@ class ContinuousPolicy(Policy):
         
         SHIST = tns.dmatrix("STATE HISTORY")
         UHIST = tns.dmatrix("ACTION HISTORY")
-        WEIGHTS = tns.dtensor3("WEIGHTS")
         
+        WEIGHTS = [tns.dmatrix("WEIGHT_%s" % i) for i in range(len(self.weights))]
         PARAMS = self.PARAMS(SHIST, UHIST, WEIGHTS)
 
         ACTION = tns.dvector("ACTION")
         
-        SQUASHED = self.squash(ACTION)
-        LOGP = self.LOGP(SQUASHED, PARAMS)
+        SAMPLE = self.UNWRAP(ACTION)
+        LOGP = self.LOGP(SAMPLE, PARAMS)
         SCORE = theano.grad(LOGP, wrt=WEIGHTS)
         
         print("Compiling policy functions . . .")
-        self.design = theano.function(inputs=[SHIST, UHIST], outputs=self.DESIGN(SHIST, UHIST), on_unused_input='ignore')
-        self.params = theano.function(inputs=[SHIST, UHIST, WEIGHTS], outputs=PARAMS, on_unused_input='ignore')
-        self.dlogp = theano.function(inputs=[ACTION, SHIST, UHIST, WEIGHTS], outputs=SCORE, on_unused_input='ignore')
+        self.params = theano.function(inputs=[SHIST, UHIST] + WEIGHTS, outputs=PARAMS, on_unused_input='ignore')
+        self.dlogp = theano.function(inputs=[ACTION, SHIST, UHIST] + WEIGHTS, outputs=SCORE, on_unused_input='ignore')
         print("Done.\n")
         
-    def squash(self, normalized_action):
-        """ Stretch and move a unit cube action to fit into the action box. """
-
-        raise NotImplementedError
-
-    def unsquash(self, action):
-        """ Normalize an action so that becomes a point in the unit cube. """
-
-        raise NotImplementedError
-
     def sample(self, shist, uhist, weights=None):
         
         if weights is None:
@@ -153,10 +140,10 @@ class ContinuousPolicy(Policy):
         shist = np.atleast_2d(shist)
         uhist = np.atleast_2d(uhist)
         
-        params = self.params(shist, uhist, weights)
-        normalized_action = self.dist.sample(params)
+        params = self.params(shist, uhist, *weights)
+        unnormalized = self.dist.sample(params)
         
-        return self.squash(normalized_action)
+        return self.wrap(unnormalized)
 
     def score(self, action, shist=[], uhist=[], weights=None):
         
@@ -166,49 +153,79 @@ class ContinuousPolicy(Policy):
         shist = np.atleast_2d(shist)
         uhist = np.atleast_2d(uhist)
         
-        return self.dlogp(action, shist, uhist, weights)
+        return BlockyVector(self.dlogp(action, shist, uhist, *weights))
 
 
-class BetaPolicy(ContinuousPolicy):
+class PolynomialPolicy(ContinuousPolicy):
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, degree=3, *args, **kwargs):
         
-        self.dist = distributions.Beta()
-
-        super().__init__(*args, **kwargs)
-
-    def squash(self, normalized_action):
-        """ Stretch and move a unit cube action to fit into the action box. """
+        self.degree = degree
         
-        return self.low + (self.high - self.low)*normalized_action
+        super().__init__(*args, **{key: val for key, val in kwargs.items() if key != 'degree'})
     
-    def unsquash(self, action):
-        """ Normalize an action so that becomes a point in the unit cube. """
+    def initialize_weights(self):
+
+        inputdim = 1 + (self.sdim * self.degree) # [1] + concatenated powers
+        outputdim = 2 # number of parameters of the action distribution
         
-        return (action - self.low) / (self.high - self.low)
+        muweights = np.random.normal(size=(self.udim, inputdim))
+        sigmaweights = np.random.normal(size=(self.udim, inputdim))
+        
+        self.weights = BlockyVector([muweights, sigmaweights])
+
+    def PARAMS(self, SHIST, UHIST, WEIGHTS):
+        
+        STATE = SHIST[-1, :]
+        
+        POWERS = [STATE ** (n + 1) for n in range(self.degree)]
+        INPUTS = tns.concatenate([[1]] + POWERS)
+
+        return [tns.dot(WEIGHT, INPUTS) for WEIGHT in WEIGHTS]
 
 
-class GaussianPolicy(ContinuousPolicy):
+class FeedForwardPolicy(ContinuousPolicy):
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, hidden=[], *args, **kwargs):
         
-        self.dist = distributions.Gaussian()
-
-        super().__init__(*args, **kwargs)
-
-    def squash(self, sample_vector):
-        """ Squash a vector of reals into the action box. """
+        self.hidden = hidden
         
-        normalized_action = 0.5*(1 + np.arctan(sample_vector))
-        
-        return self.low + (self.high - self.low)*normalized_action
+        super().__init__(*args, **{key: val for key, val in kwargs.items() if key != 'hidden'})
     
-    def unsquash(self, action):
-        """ Unsquash an element from the action box to a vector of reals. """
+    def initialize_weights(self):
         
-        normalized_action = (action - self.low) / (self.high - self.low)
+        indims = [self.sdim] + self.hidden
+        outdims = self.hidden + [self.udim]
         
-        return 2*np.tan(normalized_action) - 1
+        weights = [np.random.normal(size=(outdim, indim + 1))
+                   for indim, outdim in zip(indims, outdims)]
+        
+        self.weights = BlockyVector(weights)
+
+    def PARAMS(self, SHIST, UHIST, WEIGHTS):
+        
+        INPUT = SHIST[-1, :]
+
+        X = [INPUT]
+        
+        for WEIGHT in WEIGHTS[:-1]:
+            LAYER = tns.concatenate([X[-1], [1]])
+            COMBINATION = tns.dot(WEIGHT, LAYER)
+            X.append(tns.tanh(COMBINATION))
+
+        LAYER = tns.concatenate([X[-1], [1]])
+        COMBINATION = tns.dot(WEIGHTS[-1], LAYER)
+
+        return COMBINATION
+
+#
+# class PolynomialGaussianPolicy(PolynomialPolicy):
+#
+#     def __init__(self, *args, **kwargs):
+#
+#         self.dist = distributions.Gaussian()
+#
+#         super().__init__(*args, **kwargs)
 
 
 if __name__ == '__main__':
@@ -217,7 +234,7 @@ if __name__ == '__main__':
     
     env = gym.make('Pendulum-v0')
     
-    policy = BetaPolicy(sdim=3, udim=5)
+    policy = PolynomialBetaPolicy(sdim=3, udim=5)
     
     s = 2 + np.arange(policy.sdim)
     

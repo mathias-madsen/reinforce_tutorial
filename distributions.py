@@ -35,6 +35,26 @@ class Beta(object):
         
         return np.sum((a - 1) * np.log(x) + (b - 1) * np.log(1 - x) - betaln(a, b))
 
+    def squash(self, sample):
+        """ Force a sample from the native sample space into the unit box. """
+        
+        return sample
+
+    def unsquash(self, unit_box_sample):
+        """ Perform the inverse of the boxing operation. """
+        
+        return unit_box_sample
+
+    def SQUASH(self, sample):
+        """ Perform the boxing operation symbolically (see .box). """
+        
+        return sample
+
+    def UNSQUASH(self, unit_box_sample):
+        """ Perform the unboxing operation symbolically (see .unbox). """
+        
+        return unit_box_sample
+
 
 class Gaussian(object):
     
@@ -42,7 +62,7 @@ class Gaussian(object):
         """ Sample from a beta distribution with the given parameters. """
         
         mu = params[0]
-        sigma = params[1]
+        sigma = params[1] + 1e-20
         
         return np.random.normal(loc=mu, scale=np.abs(sigma), size=size)
     
@@ -61,20 +81,52 @@ class Gaussian(object):
         """ Numeric log-density according to a Beta distribution. """
         
         mu = params[0]
-        sigma = params[1]
+        sigma = params[1] + 1e-20
         
         square = (x - mu)**2 / sigma**2
         norm = np.log(2 * np.pi * sigma**2)
         
         return -0.5 * np.sum(square + norm)
+    
+    def squash(self, sample):
+        """ Force a sample from the native sample space into the unit box. """
+        
+        return 0.5*(1 + np.arctan(sample))
+
+    def unsquash(self, unit_box_sample):
+        """ Perform the inverse of the boxing operation. """
+        
+        return np.tan(2*unit_box_sample - 1)
+
+    def SQUASH(self, sample):
+        """ Perform the boxing operation symbolically (see .box). """
+        
+        return 0.5*(1 + tns.arctan(sample))
+
+    def UNSQUASH(self, unit_box_sample):
+        """ Perform the unboxing operation symbolically (see .unbox). """
+        
+        return tns.tan(2*unit_box_sample - 1)
 
 
 if __name__ == '__main__':
+    
+    # check that the normalization operation actually does what it says:
 
-    beta = Beta()
+    Gauss = Gaussian()
+    mu, sigma = np.zeros(5), np.ones(5)
+    
+    for i in range(100):
+    
+        x = Gauss.sample(mu, sigma)
+        Tx = Gauss.normalize(x)
+        x_reconstructed = Gauss.unnormalize(Tx)
+    
+        assert np.allclose(x, x_reconstructed)
     
     # assert density integrates to 1.0:
     
+    beta = Beta()
     params = np.random.gamma(1, 1), np.random.gamma(5, 1)
     
     x = np.linspace(0, 1, 1000)
