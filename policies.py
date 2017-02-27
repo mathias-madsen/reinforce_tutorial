@@ -29,11 +29,8 @@ class Policy(object):
     def load(self, filename=None):
         """ Initialize a policy from saved parameters. """
         
-        source = np.load(filename)
-        methods = 'dist design dlogp params'.split(' ')
-        
-        self.__dict__.update({name: entry for name, entry in source.items()
-                              if name not in methods})
+        for key, value in np.load(filename).items():
+            self.__dict__[key] = value if value.ndim > 0 else value.item()
 
     def imshow_weights(self, show=True, filename=None):
         """ imshow the parameter matrix. """
