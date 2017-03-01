@@ -32,19 +32,38 @@ class Policy(object):
         for key, value in np.load(filename).items():
             self.__dict__[key] = value if value.ndim > 0 else value.item()
 
-    def imshow_weights(self, show=True, filename=None):
+    def imshow_weights(self, blocks=None, show=True, filename=None):
         """ imshow the parameter matrix. """
-
-        plt.imshow(self.weights, aspect='auto', interpolation='nearest')
-        plt.colorbar()
         
+        if blocks is None:
+            blocks = self.weights
+
+        nblocks = len(blocks)
+        width, height = 16, 9
+
+        assert nblocks > 0
+
+        ncols = int(np.ceil(np.sqrt(width/height * nblocks)))
+        nrows = int(np.ceil(nblocks / ncols))
+        ncols = nblocks if nrows == 1 else ncols
+
+        figure = plt.figure(figsize=(width, height))
+
+        for i, block in enumerate(blocks):
+    
+            plt.subplot(nrows, ncols, i + 1)
+            plt.imshow(block, interpolation='nearest', aspect='auto')
+            plt.colorbar()
+
+        plt.tight_layout()
+
         if filename is not None:
             plt.savefig(filename)
         
         if show:
             plt.show()
         
-        plt.close('all')
+        plt.close(figure)
     
     def update(self, direction, length, verbose=False):
         """ Take a step in the direction, peforming certain sanity checks. """
@@ -62,7 +81,8 @@ class Policy(object):
 
 class ContinuousPolicy(Policy):
     
-    def __init__(self, environment=None, weights=None, Dist=distributions.Gaussian,
+    def __init__(self, sdim=None, udim=None, low=None, high=None,
+                       environment=None, weights=None, dist=None,
                        filename=None, *args, **kwargs):
         
         if filename is not None:
@@ -70,41 +90,36 @@ class ContinuousPolicy(Policy):
             self.compile()
             return
         
-        self.sdim, = environment.observation_space.shape
-        self.udim, = environment.action_space.shape
+        self.sdim = sdim if sdim is not None else environment.observation_space.shape[0]
+        self.udim = udim if udim is not None else environment.action_space.shape[0]
         
-        self.low = environment.action_space.low
-        self.high = environment.action_space.high
+        self.low = low if low is not None else environment.action_space.low
+        self.high = high if high is not None else environment.action_space.high
 
-        self.weights = weights
-        self.dist = Dist() # make new instance: Dist.__init__() == dist
-        
-        if weights is not None:
-            self.weights = BlockyVector(weights)
-        else:
-            self.initialize_weights()
+        self.dist = distributions.ArctanGaussian() if dist is None else dist
+        self.weights = self.random_weights() if weights is None else BlockyVector(weights)
 
         self.compile()
     
     def wrap(self, action):
         """ Convert an unnormalized action into a box element. """
 
-        return self.low + (self.high - self.low)*self.dist.squash(action)
+        return self.low + (self.high - self.low)*action
         
-    def WRAP(self, action):
-        """ Convert an unnormalized action into a box element. """
-
-        return self.low + (self.high - self.low)*self.dist.SQUASH(action)
-
     def unwrap(self, box_elm):
         """ Convert a box element into a unit cube element. """
 
-        return self.dist.unsquash((box_elm - self.low) / (self.high - self.low))
+        return (box_elm - self.low) / (self.high - self.low)
     
+    def WRAP(self, action):
+        """ Convert an unnormalized action into a box element. """
+
+        return self.low + (self.high - self.low)*action
+
     def UNWRAP(self, box_elm):
         """ Convert a box element into a unit cube element. """
 
-        return self.dist.UNSQUASH((box_elm - self.low) / (self.high - self.low))
+        return (box_elm - self.low) / (self.high - self.low)
 
     def LOGP(self, ACTION, PARAMS):
         
@@ -119,17 +134,18 @@ class ContinuousPolicy(Policy):
         PARAMS = self.PARAMS(SHIST, UHIST, WEIGHTS)
 
         ACTION = tns.dvector("ACTION")
-        
         SAMPLE = self.UNWRAP(ACTION)
+        
         LOGP = self.LOGP(SAMPLE, PARAMS)
         SCORE = theano.grad(LOGP, wrt=WEIGHTS)
         
         print("Compiling policy functions . . .")
-        self.params = theano.function(inputs=[SHIST, UHIST] + WEIGHTS, outputs=PARAMS, on_unused_input='ignore')
+        self.paramlist = theano.function(inputs=[SHIST, UHIST] + WEIGHTS, outputs=PARAMS, on_unused_input='ignore')
+        self.logp = theano.function(inputs=[ACTION, SHIST, UHIST] + WEIGHTS, outputs=LOGP, on_unused_input='ignore')
         self.dlogp = theano.function(inputs=[ACTION, SHIST, UHIST] + WEIGHTS, outputs=SCORE, on_unused_input='ignore')
         print("Done.\n")
         
-    def sample(self, shist, uhist, weights=None):
+    def params(self, shist, uhist, weights=None):
         
         if weights is None:
             weights = self.weights
@@ -137,10 +153,24 @@ class ContinuousPolicy(Policy):
         shist = np.atleast_2d(shist)
         uhist = np.atleast_2d(uhist)
         
-        params = self.params(shist, uhist, *weights)
-        unnormalized = self.dist.sample(params)
+        return self.paramlist(shist, uhist, *weights)
+
+    def sample(self, shist, uhist, weights=None):
         
-        return self.wrap(unnormalized)
+        params = self.params(shist, uhist, weights)
+
+        unitboxed = self.dist.sample(params)
+        actionboxed = self.wrap(unitboxed)
+
+        assert not np.any(np.isnan(unitboxed))
+
+        assert np.all(np.zeros_like(unitboxed) <= unitboxed)
+        assert np.all(unitboxed <= np.ones_like(unitboxed))
+
+        assert np.all(self.low <= actionboxed)
+        assert np.all(actionboxed <= self.high)
+        
+        return actionboxed
 
     def score(self, action, shist=[], uhist=[], weights=None):
         
@@ -161,15 +191,15 @@ class PolynomialPolicy(ContinuousPolicy):
         
         super().__init__(*args, **{key: val for key, val in kwargs.items() if key != 'degree'})
     
-    def initialize_weights(self):
+    def random_weights(self):
 
         inputdim = 1 + (self.sdim * self.degree) # [1] + concatenated powers
         outputdim = 2 # number of parameters of the action distribution
         
-        muweights = np.random.normal(size=(self.udim, inputdim))
-        sigmaweights = np.random.normal(size=(self.udim, inputdim))
+        pick_matrix = lambda: np.random.normal(size=(self.udim, inputdim))
+        matrix_list = [pick_matrix() for _ in range(self.dist.nparams)]
         
-        self.weights = BlockyVector([muweights, sigmaweights])
+        return BlockyVector(matrix_list)
 
     def PARAMS(self, SHIST, UHIST, WEIGHTS):
         
@@ -189,70 +219,50 @@ class FeedForwardPolicy(ContinuousPolicy):
         
         super().__init__(*args, **{key: val for key, val in kwargs.items() if key != 'hidden'})
     
-    def initialize_weights(self):
+    def random_weights(self):
         
-        indims = [self.sdim] + self.hidden
-        outdims = self.hidden + [self.udim]
+        smemory = 2
+        umemory = 2
         
-        weights = [np.random.normal(size=(outdim, indim + 1))
+        degree = 4
+        
+        firstsize = (smemory*self.sdim + umemory*self.udim)*degree
+        lastsize = 2 # number of distribution parameters
+        
+        indims = [firstsize] + [degree*w for w in self.hidden]
+        outdims = self.hidden + [lastsize]
+        
+        weights = [np.random.normal(size=(outdim, indim))
                    for indim, outdim in zip(indims, outdims)]
         
-        self.weights = BlockyVector(weights)
+        return BlockyVector(weights)
 
     def PARAMS(self, SHIST, UHIST, WEIGHTS):
         
-        INPUT = SHIST[-1, :]
+        smemory = 2
+        umemory = 2
+        
+        degree = 4
+
+        SLIST = [SHIST[-(t + 1), :] for t in range(smemory)]
+        ULIST = [UHIST[-(t + 1), :] for t in range(umemory)]
+         
+        INPUT = tns.concatenate(SLIST + ULIST)
 
         X = [INPUT]
         
-        for WEIGHT in WEIGHTS[:-1]:
-            LAYER = tns.concatenate([X[-1], [1]])
-            COMBINATION = tns.dot(WEIGHT, LAYER)
-            X.append(tns.tanh(COMBINATION))
+        for WEIGHT_D in WEIGHTS[:-1]:
+            LAYER = tns.concatenate([X[-1] ** n for n in range(degree)])
+            LINEAR = tns.dot(WEIGHT_D, LAYER)
+            X.append(tns.tanh(LINEAR))
 
-        LAYER = tns.concatenate([X[-1], [1]])
-        COMBINATION = tns.dot(WEIGHTS[-1], LAYER)
+        LAYER = tns.concatenate([X[-1] ** n for n in range(degree)])
+        LINEAR = tns.dot(WEIGHTS[-1], LAYER)
+        X.append(LINEAR) # no squashing
 
-        return COMBINATION
-
-#
-# class PolynomialGaussianPolicy(PolynomialPolicy):
-#
-#     def __init__(self, *args, **kwargs):
-#
-#         self.dist = distributions.Gaussian()
-#
-#         super().__init__(*args, **kwargs)
+        return X[-1]
 
 
 if __name__ == '__main__':
     
-    import gym
-    
-    env = gym.make('Pendulum-v0')
-    
-    policy = PolynomialBetaPolicy(sdim=3, udim=5)
-    
-    s = 2 + np.arange(policy.sdim)
-    
-    print("s.shape:")
-    print(s.shape)
-    print()    
-    print("design(s).shape:")
-    print(policy.design([s], [[]]).shape)
-    print()
-    print("policy.weights.shape:")
-    print(policy.weights.shape)
-    print()
-    print("Params(s, weights):")
-    print(policy.params([s], [[]], policy.weights))
-    print()
-    
-    u = policy.sample([s], [[]])
-    
-    print("Sample:")
-    print(u)
-    print()
-    print("dlogp(u):")
-    print(policy.score(u, [s], [[]], policy.weights))
-    print()
+    pass

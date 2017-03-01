@@ -9,18 +9,27 @@ from regressors import PolynomialRegressor, PolynomialTemporalRegressor
 
 class ReinforceAgent(object):
     
-    def __init__(self, policy):
+    def __init__(self, policy, baseline=None):
         
         self.policy = policy
-        self.baseline = PolynomialTemporalRegressor(self.policy.sdim)
+        
+        if baseline is not None:
+            self.baseline = baseline
+        else:
+            self.baseline = PolynomialRegressor(sdim=self.policy.sdim, degree=0)
 
         self.rsumlists = [] # progress tracker; saves N rewardsums per epoch
 
     def rollout(self, environment, T=100, render=False, fps=24):
         """ Peform a single rollout in the given environment. """
+        
+        smemory = 5
+        umemory = 5
+        
+        environment.reset() # to ensure the existence of a first state
 
-        states = [environment.reset()]
-        actions = []
+        states = [environment.reset() for t in range(smemory)]
+        actions = [environment.action_space.sample() for t in range(umemory)]
         rewards = []
         scores = []
 
@@ -46,11 +55,15 @@ class ReinforceAgent(object):
             if done:
                 break
         
-        environment.close()
+        if render:
+            environment.close()
         
         # Because of the state yielded from the initial environment.reset(),
         # we end up with one state which the agent never gets to respond to:
-        states = states[:T]
+        states = states[smemory - 1 : T + smemory - 1]
+        actions = actions[umemory:]
+        
+        assert len(states) == len(actions) == T
 
         return states, actions, rewards, scores
     
@@ -98,9 +111,9 @@ class ReinforceAgent(object):
         
         return meangradient, rewardsums, allstates, alladvantages
 
-    def train(self, environment, I=100, N=100, T=1000, gamma=0.90, learning_rate=0.1,
+    def train(self, environment, I=np.inf, N=100, T=1000, gamma=0.90, learning_rate=0.1,
                     verbose=True, dirpath=None, save_args=True, save_weights=True,
-                    plot_progress=True, imshow_weights=True):
+                    plot_progress=True, imshow_weights=False):
         """ Collect empirical information and update parameters I times. """
         
         if save_args or save_weights or plot_progress or imshow_weights:
@@ -109,7 +122,7 @@ class ReinforceAgent(object):
         if save_args:
             logger.save_args(dirpath, policy=self.policy, baseline=self.baseline,
                              environment=environment, I=I, N=N, T=T, gamma=gamma,
-                             learning_rate=learning_rate)
+                             learning_rate=learning_rate, dist=self.policy.dist)
 
         if plot_progress:
             rsumlists = []
@@ -124,7 +137,9 @@ class ReinforceAgent(object):
             self.policy.saveas(new_named_file)
             self.policy.saveas(old_most_recent)
 
-        for i in range(I):
+        i = 0
+
+        while True:
             
             if verbose:
                 print("\n", ("TRAINING EPOCH %s:" % i).center(60), "\n")
@@ -157,6 +172,10 @@ class ReinforceAgent(object):
                 rsumlists.append(rsums)
                 filename = os.path.join(dirpath, "progress.png")
                 logger.plot_progress(rsumlists, show=False, filename=filename)
+            
+            i += 1
+            if i >= I:
+                break
 
         if verbose:
             print(" Finished training. ".center(72, "="), "\n")

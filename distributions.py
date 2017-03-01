@@ -11,6 +11,14 @@ def BETALN(A, B):
 
 class Beta(object):
     
+    def __init__(self):
+        
+        self.nparams = 2
+    
+    def __repr__(self):
+        
+        return "Beta()"
+    
     def sample(self, params, size=None):
         """ Sample from a beta distribution with the given parameters. """
         
@@ -35,28 +43,16 @@ class Beta(object):
         
         return np.sum((a - 1) * np.log(x) + (b - 1) * np.log(1 - x) - betaln(a, b))
 
-    def squash(self, sample):
-        """ Force a sample from the native sample space into the unit box. """
+
+class ArctanGaussian(object):
+    
+    def __init__(self):
         
-        return sample
+        self.nparams = 2
 
-    def unsquash(self, unit_box_sample):
-        """ Perform the inverse of the boxing operation. """
+    def __repr__(self):
         
-        return unit_box_sample
-
-    def SQUASH(self, sample):
-        """ Perform the boxing operation symbolically (see .box). """
-        
-        return sample
-
-    def UNSQUASH(self, unit_box_sample):
-        """ Perform the unboxing operation symbolically (see .unbox). """
-        
-        return unit_box_sample
-
-
-class Gaussian(object):
+        return "ArctanGaussian()"
     
     def sample(self, params, size=None):
         """ Sample from a beta distribution with the given parameters. """
@@ -64,7 +60,9 @@ class Gaussian(object):
         mu = params[0]
         sigma = params[1] + 1e-20
         
-        return np.random.normal(loc=mu, scale=np.abs(sigma), size=size)
+        gaussian = np.random.normal(loc=mu, scale=np.abs(sigma), size=size)
+        
+        return self.squash(gaussian)
     
     def LOGP(self, x, params):
         """ Symbolic log-density according to a Beta distribution. """
@@ -72,7 +70,8 @@ class Gaussian(object):
         mu = params[0]
         sigma = params[1]
         
-        square = (x - mu)**2 / sigma**2
+        g = self.UNSQUASH(x)
+        square = (g - mu)**2 / sigma**2
         norm = tns.log(2 * np.pi * sigma**2)
         
         return -0.5 * tns.sum(square + norm)
@@ -83,7 +82,8 @@ class Gaussian(object):
         mu = params[0]
         sigma = params[1] + 1e-20
         
-        square = (x - mu)**2 / sigma**2
+        g = self.unsquash(x)
+        square = (g - mu)**2 / sigma**2
         norm = np.log(2 * np.pi * sigma**2)
         
         return -0.5 * np.sum(square + norm)
@@ -91,39 +91,81 @@ class Gaussian(object):
     def squash(self, sample):
         """ Force a sample from the native sample space into the unit box. """
         
-        return 0.5*(1 + np.arctan(sample))
+        return 0.5 + np.arctan(sample)/np.pi
 
     def unsquash(self, unit_box_sample):
         """ Perform the inverse of the boxing operation. """
         
-        return np.tan(2*unit_box_sample - 1)
+        return np.tan(np.pi * (unit_box_sample - 0.5))
 
     def SQUASH(self, sample):
         """ Perform the boxing operation symbolically (see .box). """
         
-        return 0.5*(1 + tns.arctan(sample))
+        return 0.5 + tns.arctan(sample)/np.pi
 
     def UNSQUASH(self, unit_box_sample):
         """ Perform the unboxing operation symbolically (see .unbox). """
         
-        return tns.tan(2*unit_box_sample - 1)
+        return tns.tan(np.pi * (unit_box_sample - 0.5))
+
+
+class NoisyArctan(ArctanGaussian):
+    
+    def __init__(self, sigma=None):
+        
+        self.nparams = 1
+        self.sigma = 0.1 if sigma is None else sigma
+    
+    def __repr__(self):
+        
+        return "NoisyArctan(sigma=%s)" % str(self.sigma)
+
+    def sample(self, params, size=None):
+        """ Sample from a beta distribution with the given parameters. """
+        
+        gaussian = np.random.normal(loc=params[0], scale=self.sigma, size=size)
+        
+        return self.squash(gaussian)
+    
+    def LOGP(self, x, params):
+        """ Symbolic log-density according to a Beta distribution. """
+        
+        square = (self.UNSQUASH(x) - params[0])**2 / self.sigma**2
+        norm = tns.log(2 * np.pi * self.sigma**2)
+        
+        return -0.5 * tns.sum(square + norm)
+
+    def logp(self, x, params):
+        """ Numeric log-density according to a Beta distribution. """
+        
+        square = (self.unsquash(x) - params[0])**2 / self.sigma**2
+        norm = np.log(2 * np.pi * sigma**2)
+        
+        return -0.5 * np.sum(square + norm)
 
 
 if __name__ == '__main__':
     
     # check that the normalization operation actually does what it says:
 
-    Gauss = Gaussian()
+    arctangauss = ArctanGaussian()
     mu, sigma = np.zeros(5), np.ones(5)
     
     for i in range(100):
     
-        x = Gauss.sample(mu, sigma)
-        Tx = Gauss.normalize(x)
-        x_reconstructed = Gauss.unnormalize(Tx)
+        x = np.random.normal(loc=mu, scale=sigma)
+        Tx = arctangauss.squash(x)
+        x_reconstructed = arctangauss.unsquash(Tx)
     
         assert np.allclose(x, x_reconstructed)
+        assert np.all(0 <= Tx) and np.all(Tx <= 1)
     
+    for i in range(100):
+    
+        Tx = arctangauss.sample(mu, sigma)
+
+        assert 0 < Tx and Tx < 1
+
     # assert density integrates to 1.0:
     
     beta = Beta()
