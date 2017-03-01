@@ -158,6 +158,11 @@ class ContinuousPolicy(Policy):
     def sample(self, shist, uhist, weights=None):
         
         params = self.params(shist, uhist, weights)
+        
+        assert len(params) == self.dist.nparams
+        
+        for param in params:
+            assert len(param) == self.udim
 
         unitboxed = self.dist.sample(params)
         actionboxed = self.wrap(unitboxed)
@@ -194,9 +199,9 @@ class PolynomialPolicy(ContinuousPolicy):
     def random_weights(self):
 
         inputdim = 1 + (self.sdim * self.degree) # [1] + concatenated powers
-        outputdim = 2 # number of parameters of the action distribution
+        outputdim = self.udim # each parameter has the same dim as the action
         
-        pick_matrix = lambda: np.random.normal(size=(self.udim, inputdim))
+        pick_matrix = lambda: np.random.normal(size=(outputdim, inputdim))
         matrix_list = [pick_matrix() for _ in range(self.dist.nparams)]
         
         return BlockyVector(matrix_list)
@@ -213,23 +218,25 @@ class PolynomialPolicy(ContinuousPolicy):
 
 class FeedForwardPolicy(ContinuousPolicy):
     
-    def __init__(self, hidden=[], *args, **kwargs):
+    def __init__(self, hidden=[], degree=None, *args, **kwargs):
         
         self.hidden = hidden
+        self.degree = 1 if degree is None else degree
         
-        super().__init__(*args, **{key: val for key, val in kwargs.items() if key != 'hidden'})
+        super().__init__(*args, **{key: val for key, val in kwargs.items()
+                                   if key not in ['hidden', 'degree']})
     
     def random_weights(self):
         
         smemory = 2
         umemory = 2
         
-        degree = 4
+        assert self.dist.nparams == 1
         
-        firstsize = (smemory*self.sdim + umemory*self.udim)*degree
-        lastsize = 2 # number of distribution parameters
+        firstsize = (smemory*self.sdim + umemory*self.udim)*self.degree
+        lastsize = self.udim # note that we only allow a single parameter
         
-        indims = [firstsize] + [degree*w for w in self.hidden]
+        indims = [firstsize] + [self.degree*w for w in self.hidden]
         outdims = self.hidden + [lastsize]
         
         weights = [np.random.normal(size=(outdim, indim))
@@ -242,8 +249,6 @@ class FeedForwardPolicy(ContinuousPolicy):
         smemory = 2
         umemory = 2
         
-        degree = 4
-
         SLIST = [SHIST[-(t + 1), :] for t in range(smemory)]
         ULIST = [UHIST[-(t + 1), :] for t in range(umemory)]
          
@@ -252,15 +257,15 @@ class FeedForwardPolicy(ContinuousPolicy):
         X = [INPUT]
         
         for WEIGHT_D in WEIGHTS[:-1]:
-            LAYER = tns.concatenate([X[-1] ** n for n in range(degree)])
+            LAYER = tns.concatenate([X[-1] ** n for n in range(self.degree)])
             LINEAR = tns.dot(WEIGHT_D, LAYER)
             X.append(tns.tanh(LINEAR))
 
-        LAYER = tns.concatenate([X[-1] ** n for n in range(degree)])
+        LAYER = tns.concatenate([X[-1] ** n for n in range(self.degree)])
         LINEAR = tns.dot(WEIGHTS[-1], LAYER)
         X.append(LINEAR) # no squashing
 
-        return X[-1]
+        return [X[-1]] # list containing only one parameter vector
 
 
 if __name__ == '__main__':
