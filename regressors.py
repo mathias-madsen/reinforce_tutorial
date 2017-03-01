@@ -90,7 +90,7 @@ class PolynomialRegressor(Regressor):
 
 class PolynomialTemporalRegressor(Regressor):
     
-    def __init__(self, sdim, degree=3, timedegree=3):
+    def __init__(self, sdim, degree=2, timedegree=1):
         
         self.sdim = sdim
         self.degree = degree
