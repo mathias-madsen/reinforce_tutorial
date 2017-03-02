@@ -76,13 +76,12 @@ class ReinforceAgent(object):
         assert not np.any(np.isnan(returns))
         assert not np.any(np.isnan(advantages))
         
-        # NOTE! The dot operation here is ambiguous between the np.ndarray
-        # operation and the corresponding BlockyVector operations. They
-        # should do the same (perform a scaling), but .dot is easier to
-        # overwrite due to the weird rules about __mul__ and __rmul__.
+        # Note: the * in `adv * score` triggers score.__rmul__(adv).
 
         terms = [adv * score for adv, score in zip(advantages, scores)]
         gradient = BlockyVector(np.sum(terms, axis=0))
+        
+        assert gradient.shape == self.policy.weights.shape
         
         return gradient, advantages
     
@@ -106,9 +105,19 @@ class ReinforceAgent(object):
             allstates.extend(states)
             alladvantages.extend(advantages)
         
-        meangradient = np.mean(gradients, axis=0)
-        meangradient = BlockyVector(meangradient)
-        
+        meangradient = BlockyVector(np.mean(gradients, axis=0))
+
+        if verbose:
+            
+            length = (meangradient ** 2).sum() ** 0.5
+            print("Length of the mean gradient: %.2f." % length)
+            
+            sqs = [((BlockyVector(g) - meangradient) ** 2).sum() for g in gradients]
+            std = np.mean(sqs, axis=0) ** 0.5
+            print("Standard deviation of the sample gradients: %.2f." % std)
+
+            print()
+
         return meangradient, rewardsums, allstates, alladvantages
 
     def train(self, environment, I=np.inf, N=100, T=1000, gamma=0.90, learning_rate=0.1,
@@ -204,3 +213,10 @@ class ReinforceAgent(object):
             all_later_returns = returns[t]
         
         return returns
+
+
+if __name__ == '__main__':
+    
+    import policies
+    
+    agent = ReinforceAgent(policies.PolynomialPolicy(sdim=2, udim=3, degree=0))

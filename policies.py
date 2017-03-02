@@ -12,7 +12,7 @@ class Policy(object):
     
     def __init__(self, *args, **kwargs):
         
-        raise NotImplementedError
+        pass
     
     def __repr__(self):
         
@@ -75,8 +75,11 @@ class Policy(object):
             print("Length of direction vector: %.5g." % L2)
             print("Length of the step taken: %.5g." % (length * L2))
             print()
-
+        
+        shape_before = self.weights.shape
         self.weights += length * direction
+        
+        assert shape_before == self.weights.shape
 
 
 class ContinuousPolicy(Policy):
@@ -90,11 +93,21 @@ class ContinuousPolicy(Policy):
             self.compile()
             return
         
-        self.sdim = sdim if sdim is not None else environment.observation_space.shape[0]
-        self.udim = udim if udim is not None else environment.action_space.shape[0]
+        if environment is None:
+            
+            self.sdim = sdim
+            self.udim = udim
+            
+            self.low = low
+            self.high = high
         
-        self.low = low if low is not None else environment.action_space.low
-        self.high = high if high is not None else environment.action_space.high
+        else:
+            
+            self.sdim = environment.observation_space.shape[0]
+            self.udim = environment.action_space.shape[0]
+            
+            self.low = environment.action_space.low
+            self.high = environment.action_space.high
 
         self.dist = distributions.ArctanGaussian() if dist is None else dist
         self.weights = self.random_weights() if weights is None else BlockyVector(weights)

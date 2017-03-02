@@ -13,6 +13,9 @@ class Beta(object):
     
     def __init__(self):
         
+        self.low = 0.0
+        self.high = 1.0
+        
         self.nparams = 2
     
     def __repr__(self):
@@ -46,7 +49,10 @@ class Beta(object):
 
 class ArctanGaussian(object):
     
-    def __init__(self):
+    def __init__(self, low=None, high=None):
+        
+        self.low = 0.0 if low is None else low
+        self.high = 1.0 if high is None else high
         
         self.nparams = 2
 
@@ -59,6 +65,9 @@ class ArctanGaussian(object):
         
         mu = params[0]
         sigma = params[1] + 1e-20
+        
+        if size is None:
+            assert len(set(len(param) for param in params)) == 1 # all == size
         
         gaussian = np.random.normal(loc=mu, scale=np.abs(sigma), size=size)
         
@@ -146,6 +155,24 @@ class NoisyArctan(ArctanGaussian):
 
 if __name__ == '__main__':
     
+    from matplotlib import pyplot as plt
+
+    arctangauss = ArctanGaussian()
+    n = 10000
+    
+    y = arctangauss.sample([0, .01], size=n)
+    
+    plt.hist(y, bins=40)
+    plt.show()
+    
+    x = np.random.normal(loc=0, scale=0.01, size=n)
+
+    plt.hist(0.5 + np.arctan(x)/np.pi, bins=40)
+    plt.show()
+
+    plt.hist(arctangauss.squash(x), bins=40)
+    plt.show()
+
     # check that the normalization operation actually does what it says:
 
     arctangauss = ArctanGaussian()
@@ -222,8 +249,6 @@ if __name__ == '__main__':
     assert np.allclose(empirical, numerical, atol=tol, rtol=tol)
 
     # if you want, do some plotting:
-
-    from matplotlib import pyplot as plt
 
     plt.figure(figsize=(16, 9))
     plt.title("$a = %.2f$, $b = %.2f$" % params, fontsize=24)
