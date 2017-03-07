@@ -82,7 +82,7 @@ class Policy(object):
         assert shape_before == self.weights.shape
 
 
-class ContinuousPolicy(Policy):
+class BoxPolicy(Policy):
     
     def __init__(self, sdim=None, udim=None, low=None, high=None,
                        environment=None, weights=None, dist=None,
@@ -201,7 +201,7 @@ class ContinuousPolicy(Policy):
         return BlockyVector(self.dlogp(action, shist, uhist, *weights))
 
 
-class PolynomialPolicy(ContinuousPolicy):
+class PolynomialPolicy(BoxPolicy):
     
     def __init__(self, degree=3, *args, **kwargs):
         
@@ -229,7 +229,7 @@ class PolynomialPolicy(ContinuousPolicy):
         return [tns.dot(WEIGHT, INPUTS) for WEIGHT in WEIGHTS]
 
 
-class FeedForwardPolicy(ContinuousPolicy):
+class FeedForwardPolicy(BoxPolicy):
     
     def __init__(self, hidden=[], degree=None, *args, **kwargs):
         
