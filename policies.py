@@ -82,6 +82,82 @@ class Policy(object):
         assert shape_before == self.weights.shape
 
 
+class GaussianPolicy(Policy):
+    
+    def __init__(self, sdim=None, udim=None, weights=None, sigma=None,
+                       filename=None, *args, **kwargs):
+        
+        if filename is not None:
+
+            self.load(filename)
+            self.compile()
+            return
+        
+        self.sdim = sdim
+        self.udim = udim
+
+        self.dist = distributions.Gaussian(sigma=sigma)
+        self.weights = self.random_weights() if weights is None else BlockyVector(weights)
+
+        self.compile()
+
+    def LOGP(self, ACTION, PARAMS):
+        
+        return self.dist.LOGP(ACTION, PARAMS)
+    
+    def compile(self):
+        
+        SHIST = tns.dmatrix("STATE HISTORY")
+        UHIST = tns.dmatrix("ACTION HISTORY")
+        
+        WEIGHTS = [tns.dmatrix("WEIGHT_%s" % i) for i in range(len(self.weights))]
+        PARAMS = self.PARAMS(SHIST, UHIST, WEIGHTS)
+
+        ACTION = tns.dvector("ACTION")
+        SAMPLE = self.UNWRAP(ACTION)
+        
+        LOGP = self.LOGP(SAMPLE, PARAMS)
+        SCORE = theano.grad(LOGP, wrt=WEIGHTS)
+        
+        print("Compiling policy functions . . .")
+        self.paramlist = theano.function(inputs=[SHIST, UHIST] + WEIGHTS, outputs=PARAMS, on_unused_input='ignore')
+        self.logp = theano.function(inputs=[ACTION, SHIST, UHIST] + WEIGHTS, outputs=LOGP, on_unused_input='ignore')
+        self.dlogp = theano.function(inputs=[ACTION, SHIST, UHIST] + WEIGHTS, outputs=SCORE, on_unused_input='ignore')
+        print("Done.\n")
+        
+    def params(self, shist, uhist, weights=None):
+        
+        if weights is None:
+            weights = self.weights
+        
+        shist = np.atleast_2d(shist) # [] ==> array([[]])
+        uhist = np.atleast_2d(uhist) # [] ==> array([[]])
+        
+        return self.paramlist(shist, uhist, *weights)
+
+    def sample(self, shist, uhist, weights=None):
+        
+        params = self.params(shist, uhist, weights)
+        
+        assert len(params) == self.dist.nparams
+        
+        for param in params:
+            assert len(param) == self.udim
+
+        return self.dist.sample(params)
+
+    def score(self, action, shist=[], uhist=[], weights=None):
+        
+        if weights is None:
+            weights = self.weights
+        
+        shist = np.atleast_2d(shist)
+        uhist = np.atleast_2d(uhist)
+        
+        return BlockyVector(self.dlogp(action, shist, uhist, *weights))
+
+
+
 class BoxPolicy(Policy):
     
     def __init__(self, sdim=None, udim=None, low=None, high=None,
