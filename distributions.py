@@ -61,7 +61,7 @@ class ArctanGaussian(object):
         return "ArctanGaussian()"
     
     def sample(self, params, size=None):
-        """ Sample from a beta distribution with the given parameters. """
+        """ Arctan of a sample from a Gaussian distribution. """
         
         mu = params[0]
         sigma = params[1] + 1e-20
@@ -74,7 +74,7 @@ class ArctanGaussian(object):
         return self.squash(gaussian)
     
     def LOGP(self, x, params):
-        """ Symbolic log-density according to a Beta distribution. """
+        """ Symbolic log-density of the arctan of a Gassian distribution. """
         
         mu = params[0]
         sigma = params[1]
@@ -86,7 +86,7 @@ class ArctanGaussian(object):
         return -0.5 * tns.sum(square + norm)
 
     def logp(self, x, params):
-        """ Numeric log-density according to a Beta distribution. """
+        """ Numeric log-density of the arctan of a Gassian distribution. """
         
         mu = params[0]
         sigma = params[1] + 1e-20
@@ -108,12 +108,12 @@ class ArctanGaussian(object):
         return np.tan(np.pi * (unit_box_sample - 0.5))
 
     def SQUASH(self, sample):
-        """ Perform the boxing operation symbolically (see .box). """
+        """ Perform the boxing operation symbolically (see .squash). """
         
         return 0.5 + tns.arctan(sample)/np.pi
 
     def UNSQUASH(self, unit_box_sample):
-        """ Perform the unboxing operation symbolically (see .unbox). """
+        """ Perform the unboxing operation symbolically (see .unsquash). """
         
         return tns.tan(np.pi * (unit_box_sample - 0.5))
 
@@ -130,14 +130,14 @@ class NoisyArctan(ArctanGaussian):
         return "NoisyArctan(sigma=%s)" % str(self.sigma)
 
     def sample(self, params, size=None):
-        """ Sample from a beta distribution with the given parameters. """
+        """ Arctan of a sample from a Gaussian distribution. """
         
         gaussian = np.random.normal(loc=params[0], scale=self.sigma, size=size)
         
         return self.squash(gaussian)
     
     def LOGP(self, x, params):
-        """ Symbolic log-density according to a Beta distribution. """
+        """ Symbolic log-density of the arctan of a Gaussian distribution. """
         
         square = (self.UNSQUASH(x) - params[0])**2 / self.sigma**2
         norm = tns.log(2 * np.pi * self.sigma**2)
@@ -145,13 +145,59 @@ class NoisyArctan(ArctanGaussian):
         return -0.5 * tns.sum(square + norm)
 
     def logp(self, x, params):
-        """ Numeric log-density according to a Beta distribution. """
+        """ Numeric log-density of the arctan of a Gaussian distribution. """
         
         square = (self.unsquash(x) - params[0])**2 / self.sigma**2
         norm = np.log(2 * np.pi * sigma**2)
         
         return -0.5 * np.sum(square + norm)
 
+
+class Gaussian(object):
+    
+    def __init__(self, sigma=None):
+        
+        if sigma is None:
+            self.sigma = None
+            self.nparams = 2
+        else:
+            self.sigma = sigma
+            self.nparams = 1
+
+    def __repr__(self):
+        
+        return "Gaussian(sigma=%s)" % str(self.sigma)
+    
+    def sample(self, params, size=None):
+        """ Sample from a Gaussian distribution with the given parameters. """
+        
+        mu = params[0]
+        sigma = params[1] if self.sigma is None else self.sigma
+        
+        return np.random.normal(loc=mu, scale=np.abs(sigma), size=size)
+    
+    def LOGP(self, x, params):
+        """ Symbolic log-density according to a Gaussian distribution. """
+        
+        mu = params[0]
+        sigma = params[1] if self.sigma is None else self.sigma
+        
+        square = (x - mu)**2 / sigma**2
+        norm = tns.log(2 * np.pi * sigma**2)
+        
+        return -0.5 * tns.sum(square + norm)
+
+    def logp(self, x, params):
+        """ Numeric log-density according to a Gaussian distribution. """
+        
+        mu = params[0]
+        sigma = params[1] if self.sigma is None else self.sigma
+        
+        square = (g - mu)**2 / sigma**2
+        norm = np.log(2 * np.pi * sigma**2)
+        
+        return -0.5 * np.sum(square + norm)
+    
 
 if __name__ == '__main__':
     
