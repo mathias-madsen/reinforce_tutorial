@@ -13,5 +13,6 @@ I have also included a few theoretical notes which explain various aspects of RE
  * ["Policy Exploration without Back-Looking Terms"](notes/Policy_Exploration_without_Back-Looking_Terms.pdf) explains a term-dropping trick that reduces the variance of the gradient estimate without changing its mean;
  * ["A Minimal Working Example of Empirical Gradient Ascent"](notes/A_Minimal_Working_Example_of_Empirical_Gradient_Ascent.pdf) explicitly computes the distribution and mean of the gradient estimate in a simple example;
  * ["Policy Exploration in a Cold Universe"](notes/Policy_Exploration_in_a_Cold_Universe.pdf) illustrates how the REINFORCE algorithm deals with the exploration/exploitation trade-off in a particularly malicious case.
+ * ["Is Randomization Necessary?"](notes/Is_Randomization_Necessary.pdf) explains why stochastic policies may be better than deterministic when the policy class isn't convex.
 
 These papers were originally written for internal use in my company, the robot software company [micropsi industries](http://www.micropsi-industries.com/), but are now freely available.
