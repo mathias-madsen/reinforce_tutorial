@@ -5,11 +5,13 @@ This repository contains a collection of scripts and notes that explain the basi
 
 The method was introduced into the reinforcement learning literature by Ronald J. Williams in ["Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning"] (http://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf) (_Machine Learning_, 1992) but has earlier precedents.
 
-This repository was created to provide some background material for a talk I gave 6 March 2017 at the Berlin machine learning meet-up. The ["slides"](slides.pdf) from the talk are also available here.
+This repository was created to provide some background material for a talk I gave 6 March 2017 at the Berlin machine learning meet-up. The [slides](slides.pdf) from the talk are also available here.
 
 In addition, I have also included a few theoretical notes here, which explain various aspects of REINFORCE, Trust Region Policy Optimization, and other policy gradients methods:
 
- * ["A Few Observations About Policy Gradient Approximations"](A Few Observations About Policy Gradient Approximations.pdf) contains an introductory description of the REINFORCE method;
- * ["Policy Exploration without Back-Looking Terms"](Policy Exploration without Back-Looking Terms.pdf) explains a term-dropping trick that reduces the variance of the gradient estimate without changing its mean;
- * ["A Minimal Working Example of Empirical Gradient Ascent"](A Minimal Working Example of Empirical Gradient Ascent.pdf) explicitly computes the distribution and mean of the gradient estimate in a simple example;
- * ["Policy Exploration in a Cold Universe"](Policy Exploration in a Cold Universe.pdf) illustrates how the REINFORCE algorithm deals with the exploration/exploitation trade-off in a particularly malicious case.
+ * ["A Few Observations About Policy Gradient Approximations"](A_Few_Observations_About_Policy_Gradient_Approximations.pdf) contains an introductory description of the REINFORCE method;
+ * ["Policy Exploration without Back-Looking Terms"](Policy_Exploration_without_Back-Looking_Terms.pdf) explains a term-dropping trick that reduces the variance of the gradient estimate without changing its mean;
+ * ["A Minimal Working Example of Empirical Gradient Ascent"](A_Minimal_Working_Example_of_Empirical_Gradient_Ascent.pdf) explicitly computes the distribution and mean of the gradient estimate in a simple example;
+ * ["Policy Exploration in a Cold Universe"](Policy_Exploration_in_a_Cold_Universe.pdf) illustrates how the REINFORCE algorithm deals with the exploration/exploitation trade-off in a particularly malicious case.
+
+These papers were originally written for internal use in my company, the robot software company [micropsi industries](http://www.micropsi-industries.com/), but are now freely available.
