@@ -3,9 +3,9 @@ REINFORCE tutorial
 
 This repository contains a collection of [scripts](code/) and [notes](notes/) that explain the basics of the so-called REINFORCE algorithm, a method for estimating the derivative of an expected value with respect to the parameters of a distribution.
 
-The method was introduced into the reinforcement learning literature by Ronald J. Williams in ["Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning"] (http://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf) (_Machine Learning_, 1992) but has earlier precedents.
+The method was introduced into the reinforcement learning literature by Ronald J. Williams in ["Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning"](http://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf) (_Machine Learning_, 1992) but has earlier precedents.
 
-This repository was created to provide some background material for a talk I gave 6 March 2017 at the Berlin machine learning meet-up. The [notes/slides](slides.pdf) from the talk are also available here, although they are not completely self-explanatory.
+This repository was created to provide some background material for a talk I gave 6 March 2017 at the Berlin machine learning meet-up. The [slides](notes/slides.pdf) from the talk are also available here, although they are not completely self-explanatory.
 
 I have also included a few theoretical notes which explain various aspects of REINFORCE, Trust Region Policy Optimization, and other policy gradients methods:
 
